@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("SVDD_Training_Example")
 
 non_falls_embeddings_dir = "output/non_falls_embeddings" # Your path
-# falls_embeddings_dir = "output/falls_embeddings" # Path to your fall embeddings for testing
+falls_embeddings_dir = "output/falls_embeddings" # Path to your fall embeddings for testing
 
 # 1. Load "normal" training data
 X_train_normal = load_embeddings_from_dir(non_falls_embeddings_dir)
@@ -33,7 +33,7 @@ logger.info("Training data scaled.")
 # 3. Initialize and train SVDD
 # Adjust nu: nu is an upper bound on the fraction of training errors and a lower bound on the fraction of support vectors.
 # If all your training data is 'normal', nu should be small.
-svdd_nu = 0.05 
+svdd_nu = 0.01
 logger.info(f"Initializing SVDD with nu = {svdd_nu}")
 svdd_model = SVDD(nu=svdd_nu)
 
@@ -49,22 +49,19 @@ try:
     # logger.info(f"Training scores (first 10): {scores_train[:10]}")
 
 
-    # --- Example: Predict on some "fall" data (if you have it) ---
-    # X_test_falls = load_embeddings_from_dir(falls_embeddings_dir)
-    # if X_test_falls is not None:
-    #     X_test_falls_scaled = scaler.transform(X_test_falls) # Use the SAME scaler
-    #     labels_falls, scores_falls = svdd_model.predict(X_test_falls_scaled)
-    #     num_detected_falls = np.sum(labels_falls == -1)
-    #     logger.info(f"Predictions on FALL data: {num_detected_falls}/{len(X_test_falls_scaled)} correctly marked as outliers (anomalous).")
-    #     # logger.info(f"Fall scores (first 10): {scores_falls[:10]}")
+    X_test_falls = load_embeddings_from_dir(falls_embeddings_dir)
+    if X_test_falls is not None:
+        X_test_falls_scaled = scaler.transform(X_test_falls)
+        labels_falls, scores_falls = svdd_model.predict(X_test_falls_scaled)
+        num_detected_falls = np.sum(labels_falls == -1)
+        logger.info(f"Predictions on FALL data: {num_detected_falls}/{len(X_test_falls_scaled)} correctly marked as outliers (anomalous).")
     
-    # --- Example: Predict on some new "non-fall" data (if you have it) ---
-    # X_test_normal = load_embeddings_from_dir("path/to/new_non_fall_embeddings")
-    # if X_test_normal is not None:
-    #     X_test_normal_scaled = scaler.transform(X_test_normal) # Use the SAME scaler
-    #     labels_normal_test, scores_normal_test = svdd_model.predict(X_test_normal_scaled)
-    #     num_normal_as_outliers = np.sum(labels_normal_test == -1)
-    #     logger.info(f"Predictions on NEW NON-FALL data: {num_normal_as_outliers}/{len(X_test_normal_scaled)} incorrectly marked as outliers.")
+    X_test_normal = load_embeddings_from_dir("path/to/new_non_fall_embeddings")
+    if X_test_normal is not None:
+        X_test_normal_scaled = scaler.transform(X_test_normal)
+        labels_normal_test, scores_normal_test = svdd_model.predict(X_test_normal_scaled)
+        num_normal_as_outliers = np.sum(labels_normal_test == -1)
+        logger.info(f"Predictions on NEW NON-FALL data: {num_normal_as_outliers}/{len(X_test_normal_scaled)} incorrectly marked as outliers.")
 
 
 except RuntimeError as e:
