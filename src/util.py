@@ -231,4 +231,36 @@ def load_and_preprocess_video(
 
 
 
+def load_embeddings_from_dir(directory_path):
+    embeddings_list = []
+    logger.info(f"Loading embeddings from: {directory_path}")
+    if not os.path.isdir(directory_path):
+        logger.error(f"Directory not found: {directory_path}")
+        return None
+        
+    for filename in os.listdir(directory_path):
+        if filename.endswith(".pt"): # Or .npy if you change saving format
+            file_path = os.path.join(directory_path, filename)
+            try:
+                # Load tensor, move to CPU if it's on GPU, then to NumPy
+                embedding_tensor = torch.load(file_path, map_location='cpu')
+                
+                # Ensure it's a 1D array (embedding_dim,) or handle [1, embedding_dim]
+                if embedding_tensor.ndim > 1:
+                    embedding_tensor = embedding_tensor.squeeze() # Remove batch dim if present
+                
+                embeddings_list.append(embedding_tensor.numpy())
+                logger.debug(f"Loaded and processed {filename}, shape: {embedding_tensor.numpy().shape}")
+            except Exception as e:
+                logger.error(f"Failed to load or process {file_path}: {e}")
+    
+    if not embeddings_list:
+        logger.warning(f"No embeddings loaded from {directory_path}")
+        return None
+        
+    # Stack into a single NumPy array
+    all_embeddings = np.vstack(embeddings_list)
+    logger.info(f"Successfully loaded {all_embeddings.shape[0]} embeddings with dimension {all_embeddings.shape[1]}.")
+    return all_embeddings
+
 

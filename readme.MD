@@ -2,7 +2,7 @@
 
 # ReaLVLM – Real‑Time One‑Shot Video Anomaly Detection with Vision–Language Reasoning
 
-ReaLVLM pairs a self‑supervised video encoder with a frozen vision–language model to flag out‑of‑distribution events—drowning, shoplifting, traffic collisions, and more—from normal‑only training data.
+ReaLVLM pairs a self‑supervised video encoder with a frozen vision–language model to flag out‑of‑distribution events—drowning, shoplifting, traffic collisions, and more from normal‑only training data.
 
 
 
