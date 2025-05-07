@@ -70,15 +70,23 @@ def test_jepa():
             
         embedding = encoder.encode(REAL_VIDEO_PATH)
         
-        # Now expect a valid tensor output
-        if embedding is not None:
-            logger.info(f"JEPA encoding returned a tensor. Shape: {embedding.shape}, Device: {embedding.device}")
-            assert isinstance(embedding, torch.Tensor)
-            assert embedding.shape[0] == 1
-            assert str(embedding.device) == 'cpu'
-            encoding_passed = True
-        else:
+        # Now expect a list of tensor outputs
+        if embedding is not None and isinstance(embedding, list):
+            if embedding: # Check if the list is not empty
+                logger.info(f"JEPA encoding returned a list of {len(embedding)} embedding(s).")
+                first_embedding = embedding[0]
+                assert isinstance(first_embedding, torch.Tensor)
+                assert str(first_embedding.device) == 'cpu' # Assuming CPU for tests
+                logger.info(f"First JEPA embedding - Shape: {first_embedding.shape}, Device: {first_embedding.device}, dtype: {first_embedding.dtype}")
+                encoding_passed = True
+            else:
+                logger.info("JEPA encoding returned an empty list.")
+                # Decide if an empty list is a pass or fail for your test case
+                # encoding_passed = True # Or False, depending on expectation
+        elif embedding is None:
             logger.error("JEPA encoding returned None unexpectedly for a real video.")
+        else:
+            logger.error(f"JEPA encoding returned an unexpected type: {type(embedding)}")
             
     except FileNotFoundError as e:
          logger.error(f"JEPA encoding failed: {e}") # Log specific file error
@@ -128,15 +136,24 @@ def test_hiera():
 
         embedding = encoder.encode(REAL_VIDEO_PATH)
 
-        # Now expect a valid tensor output
-        if embedding is not None:
-            logger.info(f"Hiera encoding returned a tensor. Shape: {embedding.shape}, Device: {embedding.device}")
-            assert isinstance(embedding, torch.Tensor)
-            assert embedding.shape[0] == 1
-            assert str(embedding.device) == 'cpu'
-            encoding_passed = True
-        else:
+        # Now expect a list of tensor outputs
+        if embedding is not None and isinstance(embedding, list):
+            if embedding: # Check if the list is not empty
+                logger.info(f"Hiera encoding returned a list of {len(embedding)} embedding(s).")
+                first_embedding = embedding[0]
+                assert isinstance(first_embedding, torch.Tensor)
+                # For Hiera, embedding_dim might not be set on the top-level Encoder if model.head is Identity()
+                # So, we check the device of the tensor itself.
+                assert str(first_embedding.device) == 'cpu' # Assuming CPU for tests
+                logger.info(f"First Hiera embedding - Shape: {first_embedding.shape}, Device: {first_embedding.device}, dtype: {first_embedding.dtype}")
+                encoding_passed = True
+            else:
+                logger.info("Hiera encoding returned an empty list.")
+                # Decide if an empty list is a pass or fail for your test case
+        elif embedding is None:
             logger.error("Hiera encoding returned None unexpectedly for a real video.")
+        else:
+            logger.error(f"Hiera encoding returned an unexpected type: {type(embedding)}")
             
     except FileNotFoundError as e:
          logger.error(f"Hiera encoding failed: {e}") # Log specific file error
@@ -157,7 +174,7 @@ if __name__ == "__main__":
         
     results = {}
     try:
-        # results["jepa"] = test_jepa()
+        results["jepa"] = test_jepa()
         results["hiera"] = test_hiera()
         # Add calls to other tests here (e.g., test_internvideo)
     finally:

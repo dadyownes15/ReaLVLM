@@ -2,9 +2,9 @@ import torch
 from pathlib import Path
 import logging
 import numpy as np
-from torchvision import transforms
-from decord import VideoReader, cpu
-import math
+# from torchvision import transforms # No longer needed here if preprocess in encoders
+# from decord import VideoReader, cpu # No longer needed here
+# import math # No longer needed here
 import os
 
 # Configure logger for this module
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Define globally accessible video extensions
+# Define globally accessible video extensions (can be used by EncoderModel)
 VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mov', '.mkv')
 
 def load_pretrained(encoder, pretrained_path, checkpoint_key='target_encoder'):
@@ -117,119 +117,9 @@ def load_pretrained(encoder, pretrained_path, checkpoint_key='target_encoder'):
     del checkpoint, state_dict, cleaned_state_dict # Free memory
     return encoder
 
-def load_and_preprocess_video(
-    video_path,
-    num_frames_to_sample,
-    target_resolution,
-    norm_mean,
-    norm_std,
-    frames_per_second=None, # Optional: for time-based sampling (like Hiera)
-    resize_impr='default', # 'default' or 'hiera' style resize
-    return_format='BCTHW' # Output format: 'BCTHW' or 'CTHW'
-):
-    """Loads a video, samples frames, applies transformations, and returns in specified format."""
-    logger.debug(f"Attempting to load video: {video_path}")
-    if not Path(video_path).is_file():
-        raise FileNotFoundError(f"Video file not found at: {video_path}")
-
-    try:
-        # Check extension (though decord might handle it)
-        if not str(video_path).lower().endswith(VIDEO_EXTENSIONS):
-             logger.warning(f"Processing file with non-standard extension: {video_path}")
-             
-        vr = VideoReader(str(video_path), num_threads=1, ctx=cpu(0))
-        video_len = len(vr)
-        video_fps = vr.get_avg_fps()
-        logger.debug(f"Video loaded: {video_len} frames, {video_fps:.2f} FPS.")
-
-        if video_len == 0:
-            raise ValueError(f"Video {video_path} has 0 frames.")
-
-        # --- Frame Sampling Logic ---
-        indices = None
-        if frames_per_second and video_fps > 0:
-             # Time-based sampling (like Hiera)
-            total_duration = video_len / video_fps
-            sample_interval_time = 1.0 / frames_per_second
-            num_actual_samples = min(num_frames_to_sample, math.ceil(total_duration * frames_per_second))
-            timestamps = np.linspace(0, total_duration, num=num_actual_samples, endpoint=False)
-            indices = np.clip(np.round(timestamps * video_fps), 0, video_len - 1).astype(np.int64)
-            indices = np.unique(indices)
-            logger.debug(f"Sampling {len(indices)} unique frames via FPS ({frames_per_second}). Indices: {indices.tolist()}")
-        else:
-            # Uniform frame count sampling (like JEPA)
-            if not frames_per_second:
-                 logger.debug(f"Using uniform frame sampling ({num_frames_to_sample} frames). Video FPS: {video_fps}")
-            else: # FPS was invalid
-                 logger.warning(f"Invalid video FPS ({video_fps}). Falling back to uniform frame sampling ({num_frames_to_sample} frames).")
-            indices = np.linspace(0, video_len - 1, num=num_frames_to_sample, dtype=np.int64)
-            indices = np.clip(indices, 0, video_len - 1)
-            logger.debug(f"Sampling {num_frames_to_sample} frames uniformly. Indices: {indices.tolist()}")
-
-        if indices is None or len(indices) == 0:
-            logger.warning(f"No frames selected for video {video_path}. Using the middle frame.")
-            indices = np.array([video_len // 2], dtype=np.int64)
-
-        frames = vr.get_batch(indices).asnumpy()
-        del vr
-
-        # T H W C -> T C H W & normalize [0, 1]
-        frames_tensor = torch.from_numpy(frames).permute(0, 3, 1, 2).float() / 255.0
-
-        # --- Transformations ---
-        t, c, h, w = frames_tensor.shape
-        if h == 0 or w == 0:
-            raise ValueError(f"Video {video_path} frame dimensions are invalid: H={h}, W={w}")
-
-        # Choose resize strategy
-        if resize_impr == 'hiera':
-             # Resize slightly larger then center crop (common for ImageNet models)
-             resize_size = target_resolution + 32 # Example heuristic, adjust if needed
-             transform_list = [
-                 transforms.Resize(resize_size),
-                 transforms.CenterCrop(target_resolution),
-             ]
-        else: # Default JEPA-style resize short side
-             if w < h:
-                 new_w = target_resolution
-                 new_h = int(target_resolution * h / w)
-             else:
-                 new_h = target_resolution
-                 new_w = int(target_resolution * w / h)
-             transform_list = [
-                  transforms.Resize((new_h, new_w), antialias=True),
-                  transforms.CenterCrop(target_resolution),
-             ]
-
-        # Add normalization
-        transform_list.append(transforms.Normalize(mean=norm_mean, std=norm_std))
-        transform = transforms.Compose(transform_list)
-
-        # Apply transform
-        frames_processed = torch.stack([transform(frame) for frame in frames_tensor]) # Shape: [T, C, H, W]
-
-        # --- Format Output --- 
-        if return_format == 'CTHW':
-             frames_final = frames_processed.permute(1, 0, 2, 3) # C, T, H, W
-             logger.debug(f"Returning preprocessed video in CTHW format: {frames_final.shape}")
-             return frames_final
-        elif return_format == 'BCTHW':
-             frames_final = frames_processed.permute(1, 0, 2, 3) # C, T, H, W
-             frames_final = frames_final.unsqueeze(0) # B, C, T, H, W
-             logger.debug(f"Returning preprocessed video in BCTHW format: {frames_final.shape}")
-             return frames_final
-        else: # Default to TCHW if format unknown
-             logger.warning(f"Unknown return format '{return_format}'. Defaulting to TCHW.")
-             logger.debug(f"Returning preprocessed video in TCHW format: {frames_processed.shape}")
-             return frames_processed
-
-    except Exception as e:
-        logger.error(f"Error processing video {video_path}: {e}", exc_info=True)
-        # Raise the exception so the caller knows processing failed
-        raise
-
-
-
+# -- Removed load_and_preprocess_video function --
+# Preprocessing logic is now expected within each encoder implementation's
+# encode_video method or private helper methods, driven by their config.
 
 def load_embeddings_from_dir(directory_path):
     embeddings_list = []

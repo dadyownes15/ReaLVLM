@@ -90,7 +90,7 @@ def _get_video_files(data_path):
         logger.error(f"Failed to list files in {data_path}: {e}", exc_info=True)
         return []
 
-DEFAULT_JEPA_CONFIG_PATH = "config/embeddings/V-JEPA_vit_huge_k400_384.json"
+DEFAULT_JEPA_CONFIG_PATH = "config/embeddings/jepa_vit_huge.k400_384.json"
 DEFAULT_HIERA_CONFIG_PATH = "config/embeddings/hiera_huge_16x224.mae_k400_ft_k400.json"
 # Define other default config paths if needed:
 # DEFAULT_HIERA_CONFIG_PATH = "config/embeddings/hiera_default.json"
