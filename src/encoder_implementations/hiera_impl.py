@@ -40,107 +40,62 @@ DEFAULT_NORM_STD = [0.229, 0.224, 0.225] # Standard ImageNet std
 class HieraEncoder:
     """Encapsulates Hiera model loading and video embedding extraction via frame averaging."""
 
-    def __init__(self, model_name=HIERA_MODEL_NAME, pretrained_checkpoint=HIERA_PRETRAINED_CHECKPOINT, device=None):
+    def __init__(self, config_dict):
         """
-        Initializes the HieraEncoder.
+        Initializes the HieraEncoder using a configuration dictionary.
 
         Args:
-            model_name (str): The specific Hiera model variant to load (e.g., 'hiera_base_224').
-            pretrained_checkpoint (str): The name of the pretrained checkpoint to use (e.g., 'mae_in1k_ft_in1k').
-            device (str, optional): Device to run the model on ('cuda', 'cpu'). 
-                                     Defaults to 'cuda' if available, else 'cpu'.
+            config_dict (dict): Dictionary containing all necessary parameters.
         """
         if Hiera is None or load_and_preprocess_video is None:
-            raise ImportError("Hiera library or utility function not available. Cannot initialize HieraEncoder.")
+            raise ImportError("Hiera library or load_and_preprocess_video utility not available. Cannot initialize HieraEncoder.")
 
-            
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
+        logger.info("Initializing HieraEncoder from configuration dictionary...")
+        params = config_dict.get("parameters")
+        if params is None:
+            raise ValueError("Configuration dictionary must contain a 'parameters' key.")
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"HieraEncoder determined to use device: {self.device}")
+
+        # --- Extract and Store Configuration (Strict Checking) ---
+        required_keys = [
+            'model_name', 'pretrained_checkpoint', 'resolution', 
+            'frames_per_second', 'num_frames_to_sample', 
+            'norm_mean', 'norm_std'
+        ]
         
-        logger.info(f"Initializing HieraEncoder: model='{model_name}', checkpoint='{pretrained_checkpoint}' on device '{self.device}'")
+        # Check for missing keys
+        missing_keys = [key for key in required_keys if key not in params]
+        if missing_keys:
+            raise ValueError(f"Missing required parameters in Hiera config: {missing_keys}")
 
-       
-        self.pretrained_checkpoint = pretrained_checkpoint
-        self.model_name = "facebook/" + model_name + "." + pretrained_checkpoint
-        # Store configuration used for preprocessing
-        self.model_config = {
-            'resolution': RESOLUTION,
-            'frames_per_second': FRAMES_PER_SECOND,
-            'num_frames_to_sample': NUM_FRAMES_TO_SAMPLE, # Max frames to sample
-            'norm_mean': DEFAULT_NORM_MEAN,
-            'norm_std': DEFAULT_NORM_STD,
-            'batch_size': BATCH_SIZE
-        }
+        # Access parameters directly (will raise KeyError if check above failed, but cleaner)
+        self.model_name_from_config = params['model_name']
+        self.pretrained_checkpoint_from_config = params['pretrained_checkpoint']
+        self.resolution = params['resolution']
+        self.frames_per_second = params['frames_per_second']
+        self.num_frames_to_sample = params['num_frames_to_sample']
+        self.norm_mean = params['norm_mean']
+        self.norm_std = params['norm_std']
+        
+        self.full_model_identifier = f"facebook/{self.model_name_from_config}.{self.pretrained_checkpoint_from_config}"
+        logger.info(f"HieraEncoder will attempt to load: '{self.full_model_identifier}' on device '{self.device}'")
+        # -----------------------------------
 
         # --- Load Hiera Model ---
         try:
-            logger.info(f"Loading Hiera model '{self.model_name}' with checkpoint '{self.pretrained_checkpoint}'...")
-            # Use the hiera library's loading function
-            self.model = Hiera.from_pretrained(self.model_name)
+            logger.info(f"Loading Hiera model using identifier: '{self.full_model_identifier}'...")
+            self.model = Hiera.from_pretrained(self.full_model_identifier)
             self.model.head = nn.Identity()
+            
             self.model.to(self.device)
-            self.model.eval() # Set to evaluation mode
-            logger.info("Hiera model loaded successfully.")
-        except KeyError:
-            logger.error(f"Model name '{self.model_name}' not found in hiera library.")
-            raise ValueError(f"Model name '{self.model_name}' not found in hiera library.")
+            self.model.eval()
+            logger.info("Hiera model loaded and configured successfully.")
+
         except Exception as e:
-            logger.error(f"Failed to load Hiera model: {e}", exc_info=True)
+            logger.error(f"Failed to load or configure Hiera model ('{self.full_model_identifier}'): {e}", exc_info=True)
             raise
-
-        # --- Determine Embedding Dimension ---
-        # Hiera models typically have a 'head' which might be for classification.
-        # We usually want features before the head. Often accessible via `model.forward_features` or similar.
-        # Let's try to get the dimension from the model's structure, assuming a standard feature dim attribute exists
-        # or by running a dummy input if necessary.
-        self.embedding_dim = None
-        try:
-             # Common attribute names for feature dimension
-             if hasattr(self.model, 'embed_dim'):
-                 self.embedding_dim = self.model.embed_dim
-             elif hasattr(self.model, 'num_features'):
-                  self.embedding_dim = self.model.num_features
-             
-             # If not found, try a dummy forward pass (more robust)
-             if self.embedding_dim is None and hasattr(self.model, 'forward_features'):
-                 dummy_input = torch.zeros(1, 3, RESOLUTION, RESOLUTION).to(self.device)
-                 with torch.no_grad():
-                      dummy_output = self.model.forward_features(dummy_input)
-                 # Output shape could be e.g., [B, N, D] or [B, D] after pooling
-                 if isinstance(dummy_output, torch.Tensor):
-                     if dummy_output.ndim == 3: # e.g., [B, N, D]
-                         self.embedding_dim = dummy_output.shape[-1]
-                     elif dummy_output.ndim == 2: # e.g., [B, D]
-                          self.embedding_dim = dummy_output.shape[-1]
-                 del dummy_input, dummy_output
-             elif self.embedding_dim is None:
-                  # Fallback if standard attributes/methods aren't present
-                  # Check the last linear layer if it exists and isn't the classification head
-                  modules = list(self.model.modules())[::-1]
-                  for layer in modules:
-                       if isinstance(layer, torch.nn.Linear):
-                            # Avoid the final classification head if possible (often named 'head')
-                            # This is heuristic
-                            parent_name = ''.join(name for name, mod in self.model.named_modules() if mod is layer)
-                            if 'head' not in parent_name:
-                                 self.embedding_dim = layer.in_features 
-                                 break
-                            elif self.embedding_dim is None: # Take head input dim as last resort
-                                 self.embedding_dim = layer.in_features
-                                 
-        except Exception as e:
-             logger.warning(f"Could not automatically determine embedding dimension: {e}", exc_info=True)
-
-        if self.embedding_dim:
-            logger.info(f"Determined Hiera embedding dimension: {self.embedding_dim}")
-        else:
-            # Fallback or raise error if dimension is crucial and couldn't be found
-            logger.warning("Could not determine Hiera embedding dimension. Please check model structure.")
-            # self.embedding_dim = 768 # Example fallback for 'base' models, adjust as needed
-            # raise RuntimeError("Could not determine Hiera embedding dimension.")
-            # For now, let it be None, but encoding might fail.
 
     @torch.no_grad()
     def encode_video(self, video_path):
@@ -161,11 +116,11 @@ class HieraEncoder:
             # Hiera expects CTHW format and specific resize
             frames_clip = load_and_preprocess_video(
                 video_path=video_path,
-                num_frames_to_sample=self.model_config['num_frames_to_sample'],
-                target_resolution=self.model_config['resolution'],
-                norm_mean=self.model_config['norm_mean'],
-                norm_std=self.model_config['norm_std'],
-                frames_per_second=self.model_config['frames_per_second'], # Use time-based sampling
+                num_frames_to_sample=self.num_frames_to_sample,
+                target_resolution=self.resolution,
+                norm_mean=self.norm_mean,
+                norm_std=self.norm_std,
+                frames_per_second=self.frames_per_second, # Use time-based sampling
                 resize_impr='hiera', # Use Hiera-style resize
                 return_format='CTHW' # Request CTHW format
             )

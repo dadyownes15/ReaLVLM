@@ -1,34 +1,37 @@
 import json
 import logging
-import numpy as np
 import torch
+# import numpy as np # Not directly used in this snippet
 from pathlib import Path
 import os
 import sys
-import time
+# import time # Not directly used in this snippet
 
-# Configure logger
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+# --- Add project root to sys.path for imports from src ---
+# Assuming this script is in VLLM_oneshot/src/models/
+_project_root_for_encoder_model = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if _project_root_for_encoder_model not in sys.path:
+    sys.path.insert(0, _project_root_for_encoder_model)
+# --------------------------------------------------------
+
 # --- Import specific encoder implementations using relative paths ---
 try:
-    # Go up one level from models to src, then down to encoder_implementations
-    from ..encoder_implementations.jepa_impl import JepaEncoder 
-    from ..encoder_implementations.hiera_impl import HieraEncoder 
-    from ..encoder_implementations.internvideo import InternVideoEncoder
-    # Import video extensions from util
-    from ..util import VIDEO_EXTENSIONS 
+    from src.encoder_implementations.jepa_impl import JepaEncoder
+    from src.encoder_implementations.hiera_impl import HieraEncoder
+    from src.encoder_implementations.internvideo import InternVideoEncoder
+    from src.util import VIDEO_EXTENSIONS # VIDEO_EXTENSIONS is in util.py
 except ImportError as e:
-    logger.error(f"Failed to import encoder implementations or VIDEO_EXTENSIONS from util. Error: {e}", exc_info=True)
-    # Log the current path for debugging if needed
-    logger.debug(f"Attempting import from: {os.path.dirname(__file__)}")
-    JepaEncoder = None # Set to None if import fails
-    HieraEncoder = None # Set to None if import fails
-    InternVideoEncoder = None # Set to None if import fails
-    VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mov', '.mkv') # Fallback if import fails
-# ------------------------------------------------------------------
+    logger.error(f"Failed to import encoder implementations or VIDEO_EXTENSIONS. Error: {e}", exc_info=True)
+    JepaEncoder = HieraEncoder = InternVideoEncoder = None
+    VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mov', '.mkv') # Fallback
+
+# --- Helper functions for encode_dataset (can remain here or move to util if preferred) ---
+# _load_checkpoint, _save_checkpoint, _get_video_files from your previous version
+# Ensure _get_video_files uses the imported VIDEO_EXTENSIONS
 
 def _load_checkpoint(checkpoint_path):
     """Loads checkpoint file, handles missing file or invalid JSON."""
@@ -87,108 +90,110 @@ def _get_video_files(data_path):
         logger.error(f"Failed to list files in {data_path}: {e}", exc_info=True)
         return []
 
+DEFAULT_JEPA_CONFIG_PATH = "config/embeddings/V-JEPA_vit_huge_k400_384.json"
+DEFAULT_HIERA_CONFIG_PATH = "config/embeddings/hiera_huge_16x224.mae_k400_ft_k400.json"
+# Define other default config paths if needed:
+# DEFAULT_HIERA_CONFIG_PATH = "config/embeddings/hiera_default.json"
+# DEFAULT_INTERNVIDEO_CONFIG_PATH = "config/embeddings/internvideo_default.json"
+
 class Encoder:
-    def __init__(self, encoder_type, device="cpu", **kwargs):
+    def __init__(self, encoder_type, **kwargs):
         """
-        Initializes the main Encoder class, which acts as a wrapper around specific implementations.
+        Initializes the main Encoder class.
 
         Args:
-            encoder_type (str): The type of encoder to use (e.g., 'jepa', 'heira').
-            device (str, optional): Device to run the model on ('cuda', 'cpu'). 
-                                     Defaults to 'cuda' if available, else 'cpu'.
-            **kwargs: Additional keyword arguments specific to the chosen encoder type.
-                      These will be passed down to the underlying encoder implementation's
-                      constructor (e.g., JepaEncoder, HieraEncoder).
-                      Examples for 'jepa': encoder_checkpoint_path, probe_checkpoint_path,
-                                          model_name, resolution, frames_per_clip, etc.
-                      Examples for 'heira': hiera_model_name, hiera_pretrained_checkpoint.
-                      Examples for 'internvideo': internvideo_model_id.
+            encoder_type (str): Type of encoder ('jepa', 'hiera', 'internvideo').
+            **kwargs:
+                jepa_config_path (str, optional): Path to JEPA JSON config.
+                hiera_config_path (str, optional): Path to Hiera JSON config.
+                internvideo_config_path (str, optional): Path to InternVideo JSON config.
+                Alternatively, encoder-specific parameters can be passed directly
+                if the respective encoder supports it (though config file is preferred).
         """
         self.encoder_type = encoder_type.lower()
-        self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"Initializing Encoder of type '{self.encoder_type}' on device '{self.device}'")
-       
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Encoder '{self.encoder_type}' will use device: '{self.device}' (determined by Encoder class)")
+        # Note: Individual encoders will also determine and log their device.
+
         self.encoder_impl = None
         self.embedding_dim = None
+        
+        # Determine project root to resolve relative config paths
+        _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
 
         if self.encoder_type == 'jepa':
             if JepaEncoder is None:
-                raise ImportError("JepaEncoder implementation could not be imported. Cannot initialize.")
+                raise ImportError("JepaEncoder implementation could not be imported.")
             
-            # Collect arguments intended for JepaEncoder from kwargs
-            # These keys should match the parameter names in JepaEncoder.__init__
-            jepa_init_keys = [
-                'encoder_checkpoint_path', 'probe_checkpoint_path', 'model_name', 
-                'patch_size', 'resolution', 'frames_per_clip', 'tubelet_size', 
-                'checkpoint_key_encoder', 'checkpoint_key_probe', 'model_kwargs', 
-                'norm_mean', 'norm_std'
-            ]
-            jepa_args = {key: kwargs[key] for key in jepa_init_keys if key in kwargs}
+            config_path_rel = kwargs.get('jepa_config_path', DEFAULT_JEPA_CONFIG_PATH)
+            config_path_abs = os.path.join(_project_root, config_path_rel) if not os.path.isabs(config_path_rel) else config_path_rel
             
+            logger.info(f"Loading JEPA configuration from: {config_path_abs}")
+            if not os.path.exists(config_path_abs):
+                raise FileNotFoundError(f"JEPA config file not found: {config_path_abs}")
             try:
-                # Pass only the collected arguments. JepaEncoder will use its defaults
-                # for any arguments not present in jepa_args.
-                self.encoder_impl = JepaEncoder(
-                    **jepa_args, 
-                    device=self.device
-                )
+                with open(config_path_abs, 'r') as f:
+                    jepa_config_dict = json.load(f)
+                
+                # Pass the loaded config dictionary. JepaEncoder now expects this.
+                # Any specific kwargs for JepaEncoder *not* in the JSON could be merged here if desired,
+                # but current design prioritizes JSON.
+                self.encoder_impl = JepaEncoder(config_dict=jepa_config_dict)
                 self.embedding_dim = self.encoder_impl.embedding_dim
-
             except Exception as e:
-                logger.error(f"Failed to initialize JepaEncoder: {e}", exc_info=True)
-                raise # Re-raise the exception after logging
+                logger.error(f"Failed to initialize JepaEncoder with config {config_path_abs}: {e}", exc_info=True)
+                raise
         
         elif self.encoder_type == 'hiera':
             if HieraEncoder is None:
-                raise ImportError("HieraEncoder implementation could not be imported. Cannot initialize.")
-            # HieraEncoder takes optional model_name and pretrained_checkpoint
-            # We extract them from kwargs if provided, otherwise HieraEncoder uses its defaults.
-            hiera_args = {
-                'model_name': kwargs.get('model_name'), # Use specific names to avoid conflicts
-                'pretrained_checkpoint': kwargs.get('pretrained_checkpoint'),
-                'finetune_checkpoint': kwargs.get('finetune_checkpoint')
-            }
-            # Filter out None values so HieraEncoder uses its defaults
-            hiera_args = {k: v for k, v in hiera_args.items() if v is not None}
+                raise ImportError("HieraEncoder implementation could not be imported.")
             
+            # Determine config path (provided or default)
+            config_path_rel = kwargs.get('hiera_config_path', DEFAULT_HIERA_CONFIG_PATH)
+            config_path_abs = os.path.join(_project_root, config_path_rel) if not os.path.isabs(config_path_rel) else config_path_rel
+            
+            logger.info(f"Loading Hiera configuration from: {config_path_abs}")
+            if not os.path.exists(config_path_abs):
+                raise FileNotFoundError(f"Hiera config file not found: {config_path_abs}")
             try:
-                self.encoder_impl = HieraEncoder(
-                    **hiera_args,
-                    device=self.device
-                )
-                self.embedding_dim = self.encoder_impl.embedding_dim 
+                # Load config JSON
+                with open(config_path_abs, 'r') as f:
+                    hiera_config_dict = json.load(f)
+                
+                # Initialize HieraEncoder with the config dictionary
+                self.encoder_impl = HieraEncoder(config_dict=hiera_config_dict)
+          
             except Exception as e:
-                 logger.error(f"Failed to initialize HieraEncoder: {e}", exc_info=True)
-                 raise # Re-raise the exception after logging
+                 logger.error(f"Failed to initialize HieraEncoder with config {config_path_abs}: {e}", exc_info=True)
+                 raise 
 
         elif self.encoder_type == 'internvideo':
+            # Similar logic for InternVideo
             if InternVideoEncoder is None:
-                 raise ImportError("InternVideoEncoder implementation could not be imported. Cannot initialize.")
-            # InternVideoEncoder takes an optional model_id
+                 raise ImportError("InternVideoEncoder implementation could not be imported.")
+            # internvideo_config_path = kwargs.get('internvideo_config_path', DEFAULT_INTERNVIDEO_CONFIG_PATH)
+            # ... load json ...
+            # self.encoder_impl = InternVideoEncoder(config_dict=internvideo_config_dict)
+            # For now, keep old InternVideo init
             internvideo_args = {
-                 'model_name': kwargs.get('model_name') # Use specific name
+                 'model_path_or_id': kwargs.get('internvideo_model_id'),
+                 'weight_filename': kwargs.get('internvideo_weight_filename')
             }
-            # Filter out None value so InternVideoEncoder uses its default
             internvideo_args = {k: v for k, v in internvideo_args.items() if v is not None}
-            
             try:
-                self.encoder_impl = InternVideoEncoder(
-                    **internvideo_args,
-                    device=self.device
-                )
+                self.encoder_impl = InternVideoEncoder(**internvideo_args) # InternVideo still uses kwargs
                 self.embedding_dim = self.encoder_impl.embedding_dim
             except Exception as e:
                  logger.error(f"Failed to initialize InternVideoEncoder: {e}", exc_info=True)
                  raise
-
         else:
             raise ValueError(f"Unsupported encoder type: '{self.encoder_type}'")
 
         if self.encoder_impl is None:
             raise RuntimeError(f"Encoder implementation for type '{self.encoder_type}' failed to initialize.")
             
-        logger.info(f"Encoder '{self.encoder_type}' initialized successfully. Embedding dimension: {self.embedding_dim}")
-
+        logger.info(f"Encoder '{self.encoder_type}' (impl: {self.encoder_impl.__class__.__name__}) initialized successfully. Embedding dimension: {self.embedding_dim}")
 
     def encode(self, video_path):
         """

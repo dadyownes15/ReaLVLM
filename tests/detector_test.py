@@ -63,7 +63,7 @@ try:
         num_normal_as_outliers = np.sum(labels_normal_test == -1)
         logger.info(f"Predictions on NEW NON-FALL data: {num_normal_as_outliers}/{len(X_test_normal_scaled)} incorrectly marked as outliers.")
 
-
+    
 except RuntimeError as e:
     logger.error(f"SVDD training or prediction failed: {e}")
 except Exception as e:

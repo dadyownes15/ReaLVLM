@@ -29,103 +29,53 @@ except ImportError as e:
 class JepaEncoder:
     """Encapsulates V-JEPA model loading and video embedding extraction."""
 
-    def __init__(self,
-                 encoder_checkpoint_path="weights/jepa/vit_huge16-384/vith16-384.pth.tar",
-                 probe_checkpoint_path="weights/jepa/vit_huge16-384/k400-probe.pth.tar",
-                 device=None,
-                 # --- Model Config Parameters with Defaults ---
-                 model_name='vit_huge',
-                 patch_size=16,
-                 resolution=384,
-                 frames_per_clip=16,
-                 tubelet_size=2,
-                 checkpoint_key_encoder='target_encoder',
-                 checkpoint_key_probe='classifier',
-                 model_kwargs = {
-                     'use_sdpa': True,
-                     'uniform_power': False,
-                     'use_SiLU': False,
-                     'tight_SiLU': True,
-                 },
-                 norm_mean = [0.485, 0.456, 0.406],
-                 norm_std = [0.229, 0.224, 0.225]
-                 # --- End Model Config Parameters ---
-                 ):
+    def __init__(self, config_dict):
         """
-        Initializes the JepaEncoder.
+        Initializes the JepaEncoder using a configuration dictionary.
 
         Args:
-            encoder_checkpoint_path (str, optional): Path to the V-JEPA pretrained encoder checkpoint.
-                                                     Defaults to 'weights/jepa/vit_huge16-384/vith16-384.pth.tar'.
-            probe_checkpoint_path (str, optional): Path to the attentive probe checkpoint.
-                                                   Defaults to 'weights/jepa/vit_huge16-384/k400-probe.pth.tar'.
-            device (str, optional): Device to run the model on ('cuda', 'cpu'). 
-                                     Defaults to 'cuda' if available, else 'cpu'.
-            model_name (str): Name of the Vision Transformer model variant.
-            patch_size (int): Size of patches.
-            resolution (int): Input resolution.
-            frames_per_clip (int): Number of frames the model expects.
-            tubelet_size (int): Temporal size of tubelet patches.
-            checkpoint_key_encoder (str): Key for encoder weights in the checkpoint.
-            checkpoint_key_probe (str): Key for probe weights in the checkpoint.
-            model_kwargs (dict): Additional arguments for the ViT model constructor.
-            norm_mean (list): Mean for normalization.
-            norm_std (list): Standard deviation for normalization.
+            config_dict (dict): Dictionary containing all necessary parameters.
+                                Expected keys are defined in the JSON configuration file.
         """
-        # --- Basic Setup ---
-        # Determine project root (assuming this file is in src/encoder_implementations)
+        if vit is None or AttentiveClassifier is None or load_pretrained is None or load_and_preprocess_video is None:
+             raise ImportError("JEPA dependencies (vit, AttentiveClassifier, or utils) not loaded. Cannot initialize JepaEncoder.")
+
+        logger.info("Initializing JepaEncoder from configuration dictionary...")
+        params = config_dict.get("parameters")
+        if params is None:
+            raise ValueError("Configuration dictionary must contain a 'parameters' key.")
+
+        # Determine and set device internally
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"JepaEncoder determined to use device: {self.device}")
+
+        # --- Extract and Store Configuration ---
         _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        
-        # Set default checkpoint paths if None is provided
-        if encoder_checkpoint_path is None:
-             _default_encoder_path = os.path.join(_project_root, 'weights', 'jepa', 'vit_huge16-384', 'vith16-384.pth.tar')
-             if not os.path.isfile(_default_encoder_path):
-                 logger.warning(f"Default encoder checkpoint not found at: {_default_encoder_path}")
-                 # Optionally raise an error or proceed without a default
-                 # raise FileNotFoundError(f"Default encoder checkpoint not found: {_default_encoder_path}")
-                 self.encoder_checkpoint_path = None # Set explicitly to None if not found
-             else:
-                 self.encoder_checkpoint_path = _default_encoder_path
-                 logger.info(f"Using default encoder checkpoint: {self.encoder_checkpoint_path}")
-        else:
-            self.encoder_checkpoint_path = encoder_checkpoint_path
-            
-        if probe_checkpoint_path is None:
-            _default_probe_path = os.path.join(_project_root, 'weights', 'jepa', 'vit_huge16-384', 'k400-probe.pth.tar')
-            if not os.path.isfile(_default_probe_path):
-                 logger.warning(f"Default probe checkpoint not found at: {_default_probe_path}")
-                 # raise FileNotFoundError(f"Default probe checkpoint not found: {_default_probe_path}")
-                 self.probe_checkpoint_path = None # Set explicitly to None if not found
-            else:
-                self.probe_checkpoint_path = _default_probe_path
-                logger.info(f"Using default probe checkpoint: {self.probe_checkpoint_path}")
-        else:
-             self.probe_checkpoint_path = probe_checkpoint_path
-        
-        # Raise error if paths are still None after checking defaults and none were provided
-        if self.encoder_checkpoint_path is None:
-             raise ValueError("Encoder checkpoint path must be provided or the default must exist.")
-        if self.probe_checkpoint_path is None:
-             raise ValueError("Probe checkpoint path must be provided or the default must exist.")
 
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device(device)
-        
-        logger.info(f"Using device: {self.device}")
+        # Checkpoint paths: make them absolute from project root if relative
+        _encoder_ckpt_path_rel = params.get('encoder_checkpoint_path', 'weights/jepa/vit_huge16-384/vith16-384.pth.tar') # Default for safety
+        self.encoder_checkpoint_path = os.path.join(_project_root, _encoder_ckpt_path_rel) if not os.path.isabs(_encoder_ckpt_path_rel) else _encoder_ckpt_path_rel
 
-        # --- Store Configuration as Instance Attributes ---
-        self.model_name = model_name
-        self.patch_size = patch_size
-        self.resolution = resolution
-        self.frames_per_clip = frames_per_clip
-        self.tubelet_size = tubelet_size
-        self.checkpoint_key_encoder = checkpoint_key_encoder
-        self.checkpoint_key_probe = checkpoint_key_probe
-        self.model_kwargs = model_kwargs
-        self.norm_mean = norm_mean
-        self.norm_std = norm_std
+        _probe_ckpt_path_rel = params.get('probe_checkpoint_path', 'weights/jepa/vit_huge16-384/k400-probe.pth.tar') # Default for safety
+        self.probe_checkpoint_path = os.path.join(_project_root, _probe_ckpt_path_rel) if not os.path.isabs(_probe_ckpt_path_rel) else _probe_ckpt_path_rel
+
+        if not os.path.isfile(self.encoder_checkpoint_path):
+            logger.warning(f"Encoder checkpoint path does not exist or is not a file: {self.encoder_checkpoint_path}")
+        if not os.path.isfile(self.probe_checkpoint_path):
+            logger.warning(f"Probe checkpoint path does not exist or is not a file: {self.probe_checkpoint_path}")
+
+        self.model_name = params.get('model_name', 'vit_huge')
+        self.patch_size = params.get('patch_size', 16)
+        self.resolution = params.get('resolution', 384)
+        self.frames_per_clip = params.get('frames_per_clip', 16)
+        self.tubelet_size = params.get('tubelet_size', 2)
+        self.checkpoint_key_encoder = params.get('checkpoint_key_encoder', 'target_encoder')
+        self.checkpoint_key_probe = params.get('checkpoint_key_probe', 'classifier')
+        self.model_kwargs = params.get('model_kwargs', {
+            'use_sdpa': True, 'uniform_power': False, 'use_SiLU': False, 'tight_SiLU': True
+        })
+        self.norm_mean = params.get('norm_mean', [0.485, 0.456, 0.406])
+        self.norm_std = params.get('norm_std', [0.229, 0.224, 0.225])
         # ------------------------------------------------
 
         # --- Initialize Encoder ---
@@ -144,31 +94,28 @@ class JepaEncoder:
         # --- Initialize Attentive Classifier and Load Probe Weights ---
         logger.info("Initializing Attentive Classifier (Pooler)...")
         try:
-            # Placeholder number of classes for pooler initialization
-            _num_classes_placeholder = 400 
+            _num_classes_placeholder = 400
             classifier = AttentiveClassifier(
                 embed_dim=self.encoder.embed_dim,
                 num_heads=self.encoder.num_heads,
-                depth=1, 
-                num_classes=_num_classes_placeholder 
+                depth=1,
+                num_classes=_num_classes_placeholder
             ).to(self.device)
-            
+
             classifier_loaded = _load_probe_checkpoint(
                 classifier=classifier,
                 probe_checkpoint_path=self.probe_checkpoint_path,
                 probe_checkpoint_key=self.checkpoint_key_probe
             )
-            classifier_loaded.eval() 
+            classifier_loaded.eval()
             self.pooler = classifier_loaded.pooler
             logger.info("Attentive Pooler loaded successfully!")
         except Exception as e:
             logger.error(f"Failed to initialize/load probe from {self.probe_checkpoint_path}: {e}", exc_info=True)
             raise
-        
-        # --- Store Embedding Dimension --- 
+
         self.embedding_dim = self.encoder.embed_dim
         logger.info(f"Initialized JepaEncoder. Output embedding dimension: {self.embedding_dim}")
-
 
     @torch.no_grad()
     def encode_video(self, video_path):
@@ -184,39 +131,33 @@ class JepaEncoder:
         """
         logger.info(f"Encoding video: {video_path}")
         try:
-            # Load and preprocess video using the utility function
-            # JEPA expects BCTHW format and uses default resize
             input_tensor = load_and_preprocess_video(
                 video_path=video_path,
                 num_frames_to_sample=self.frames_per_clip,
                 target_resolution=self.resolution,
                 norm_mean=self.norm_mean,
                 norm_std=self.norm_std,
-                # frames_per_second=None, # Use default uniform sampling
-                # resize_impr='default', # Use default resize
-                return_format='BCTHW' # Request Batch dim included
+                return_format='BCTHW'
             ).to(self.device)
 
-            # Verify input shape
-            expected_shape = (1, 3, self.frames_per_clip, self.resolution, self.resolution)
-            if input_tensor.shape != expected_shape:
-                # Note: Frame count might differ slightly if video is shorter than frames_per_clip
-                # This check assumes the sampling logic always returns exactly frames_per_clip
-                # A more robust check might verify C, H, W and that T <= frames_per_clip
-                actual_frames = input_tensor.shape[2]
-                expected_shape_flexible_t = (1, 3, actual_frames, self.resolution, self.resolution)
-                if input_tensor.shape == expected_shape_flexible_t and actual_frames <= self.frames_per_clip:
-                     logger.warning(f"Input tensor frame count {actual_frames} differs from config {self.frames_per_clip} (likely short video). Proceeding.")
-                else:
-                    logger.error(f"Video {video_path}: Input tensor shape mismatch! Expected {expected_shape} or compatible, got {input_tensor.shape}. Skipping video.")
-                    return None
+            expected_shape_part = (1, 3, self.frames_per_clip, self.resolution, self.resolution)
+            # More robust check for frame count due to short videos
+            actual_frames = input_tensor.shape[2]
+            if not (input_tensor.shape[0] == 1 and \
+                    input_tensor.shape[1] == 3 and \
+                    actual_frames <= self.frames_per_clip and \
+                    input_tensor.shape[3] == self.resolution and \
+                    input_tensor.shape[4] == self.resolution and \
+                    actual_frames > 0 ) : # ensure some frames were loaded
+                logger.error(f"Video {video_path}: Input tensor shape mismatch or invalid. Expected compatible with {expected_shape_part}, got {input_tensor.shape}. Skipping video.")
+                return None
+            if actual_frames < self.frames_per_clip:
+                 logger.warning(f"Input tensor frame count {actual_frames} is less than config {self.frames_per_clip} (short video). Proceeding.")
 
-            # Perform forward pass
-            logger.debug(f"Performing forward pass for {video_path}...")
+
             encoder_embeddings = self.encoder(input_tensor)
             pooled_embeddings = self.pooler(encoder_embeddings)
             logger.debug(f"Got pooled embeddings shape: {pooled_embeddings.shape} for {video_path}")
-            
             return pooled_embeddings.cpu()
 
         except FileNotFoundError:
@@ -224,7 +165,7 @@ class JepaEncoder:
             return None
         except Exception as e:
             logger.error(f"Failed to encode video {video_path}: {e}", exc_info=False)
-            logger.debug("Detailed traceback:", exc_info=True) 
+            logger.debug("Detailed traceback:", exc_info=True)
             return None
 
 

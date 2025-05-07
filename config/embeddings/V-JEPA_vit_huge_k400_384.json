@@ -1,0 +1,24 @@
+{
+    "encoder_type": "jepa",
+    "description": "Configuration for V-JEPA ViT-Huge, 384px resolution, using Kinetics-400 probe defaults.",
+    "parameters": {
+        "encoder_checkpoint_path": "weights/jepa/vit_huge16-384/vith16-384.pth.tar",
+        "probe_checkpoint_path": "weights/jepa/vit_huge16-384/k400-probe.pth.tar",
+        "model_name": "vit_huge",
+        "patch_size": 16,
+        "resolution": 384,
+        "frames_per_clip": 16,
+        "tubelet_size": 2,
+        "checkpoint_key_encoder": "target_encoder",
+        "checkpoint_key_probe": "classifier",
+        "model_kwargs": {
+            "use_sdpa": true,
+            "uniform_power": false,
+            "use_SiLU": false,
+            "tight_SiLU": true
+        },
+        "norm_mean": [0.485, 0.456, 0.406],
+        "norm_std": [0.229, 0.224, 0.225]
+    },
+    "dataset_name_info": "shanghai"
+}

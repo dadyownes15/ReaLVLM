@@ -1,0 +1,13 @@
+{
+    "encoder_type": "hiera",
+    "description": "Default configuration for Hiera encoder based on original implementation defaults.",
+    "parameters": {
+        "model_name": "hiera_huge_16x224",
+        "pretrained_checkpoint": "mae_k400_ft_k400",
+        "resolution": 224,
+        "frames_per_second": 3,
+        "num_frames_to_sample": 16,
+        "norm_mean": [0.485, 0.456, 0.406],
+        "norm_std": [0.229, 0.224, 0.225]
+    }
+} 
