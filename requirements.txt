@@ -1,0 +1,28 @@
+# Core PyTorch and related libraries
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.20
+
+# Video processing
+# decord>=0.6.0 # Replaced by eva-decord
+eva-decord # Or specify version, e.g., eva-decord>=0.6.0
+
+# Specific model libraries / Encoders
+
+# For 'hiera':
+# The Hiera library by Facebook Research is typically installed from its GitHub repository.
+# You might need dependencies like fvcore, iopath, and classy_vision first.
+# Example installation steps (consult the official Hiera repository for the latest instructions):
+# pip install fvcore iopath classy_vision
+# pip install git+https://github.com/facebookresearch/hiera.git
+# If 'hiera' is a different library you are using, please adjust accordingly.
+
+# For 'jepa':
+# This refers to the V-JEPA model components, likely from a specific research repository
+# or a local implementation (e.g., within your 'jepa' directory based on imports like 'from jepa.src...').
+# Ensure that this 'jepa' module/package is correctly installed in your Python environment.
+# If it's a local package with a setup.py, you might use: pip install -e path/to/jepa_package_root
+# Or, ensure the directory containing the 'jepa' top-level folder is in your PYTHONPATH.
+
+# Note: Please verify these versions and installation methods based on the specific requirements
+# of the JEPA and Hiera implementations you are using. 
