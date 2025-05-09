@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 # --- JEPA and Utility Imports ---
 try:
     # Assuming 'jepa' and 'src' are top-level directories relative to the project root
-    from jepa.src.models import vision_transformer as vit
-    from jepa.src.models.attentive_pooler import AttentiveClassifier
+    from src.jepa.src.models import vision_transformer as vit
+    from src.jepa.src.models.attentive_pooler import AttentiveClassifier
     # Util functions from the main src directory
     from src.util import load_pretrained
 except ImportError as e:

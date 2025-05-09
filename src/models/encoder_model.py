@@ -210,7 +210,8 @@ class Encoder:
             logger.error("Encoder implementation not initialized.")
             return None
             
-        if not isinstance(video_path, str) or not Path(video_path).is_file():
+        video_path = Path(video_path)          # ← normalise immediately
+        if not video_path.is_file():
             logger.error(f"Invalid video path provided: {video_path}")
             return None
 

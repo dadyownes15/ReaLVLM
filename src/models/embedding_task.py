@@ -3,11 +3,11 @@ import os
 from pathlib import Path
 import torch
 
-from models.encoder_model import Encoder
+from src.models.encoder_model import Encoder
 
 
 class EmbeddingTask:
-    def __init__(self, model_config_path: str, dataset_name: str, training_data_path: Path, test_data_path: Path):
+    def __init__(self, model_config_path: str, dataset_name: str, training_data_path: str , test_data_path: str):
         self.model_config_path = model_config_path
         self.dataset_name = dataset_name
         self.training_data_path = training_data_path
@@ -49,6 +49,11 @@ class EmbeddingTask:
                 print(f"Processing: {split}/{item_path.name} (stem: {item_stem})")
                 try:
                     encoded_results = encoder.encode(item_path)
+                    
+                    if encoded_results is None:
+                        print(f"Skipping {split}/{item_path.name} – encode() failed.")
+                        self.checkpoint_data['failed_items'][split][item_stem] = "encode() returned None"
+                        continue
 
                     if isinstance(encoded_results, list):
                         if not encoded_results: 
@@ -94,7 +99,8 @@ class EmbeddingTask:
         }
 
         # Helper function to populate splits
-        def populate_split(split_name, data_path):
+        def populate_split(split_name, data_dir):
+            data_path = Path(data_dir)
             if not data_path.exists() or not data_path.is_dir():
                 print(f"Warning: {split_name} data path {data_path} does not exist or is not a directory. Skipping.")
                 dataset_splits[split_name] = None # Mark as None if path is invalid
