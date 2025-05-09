@@ -23,10 +23,11 @@ try:
     from src.encoder_implementations.jepa_impl import JepaEncoder
     from src.encoder_implementations.hiera_impl import HieraEncoder
     from src.encoder_implementations.internvideo import InternVideoEncoder
+    from src.encoder_implementations.flux_vit_impl import FluxViTEncoder
     from src.util import VIDEO_EXTENSIONS # VIDEO_EXTENSIONS is in util.py
 except ImportError as e:
     logger.error(f"Failed to import encoder implementations or VIDEO_EXTENSIONS. Error: {e}", exc_info=True)
-    JepaEncoder = HieraEncoder = InternVideoEncoder = None
+    JepaEncoder = HieraEncoder = InternVideoEncoder = FluxViTEncoder = None
     VIDEO_EXTENSIONS = ('.mp4', '.avi', '.mov', '.mkv') # Fallback
 
 # --- Helper functions for encode_dataset (can remain here or move to util if preferred) ---
@@ -92,6 +93,7 @@ def _get_video_files(data_path):
 
 DEFAULT_JEPA_CONFIG_PATH = "config/embeddings/jepa_vit_huge.k400_384.json"
 DEFAULT_HIERA_CONFIG_PATH = "config/embeddings/hiera_huge_16x224.mae_k400_ft_k400.json"
+DEFAULT_FLUXVIT_CONFIG_PATH = "config/embeddings/fluxvit_s14_k400.json"
 # Define other default config paths if needed:
 # DEFAULT_HIERA_CONFIG_PATH = "config/embeddings/hiera_default.json"
 # DEFAULT_INTERNVIDEO_CONFIG_PATH = "config/embeddings/internvideo_default.json"
@@ -167,6 +169,26 @@ class Encoder:
             except Exception as e:
                  logger.error(f"Failed to initialize HieraEncoder with config {config_path_abs}: {e}", exc_info=True)
                  raise 
+
+        elif self.encoder_type == 'fluxvit':
+            if FluxViTEncoder is None:
+                raise ImportError("FluxViTEncoder implementation could not be imported.")
+            
+            config_path_rel = kwargs.get('fluxvit_config_path', DEFAULT_FLUXVIT_CONFIG_PATH)
+            config_path_abs = os.path.join(_project_root, config_path_rel) if not os.path.isabs(config_path_rel) else config_path_rel
+            
+            logger.info(f"Loading FluxViT configuration from: {config_path_abs}")
+            if not os.path.exists(config_path_abs):
+                raise FileNotFoundError(f"FluxViT config file not found: {config_path_abs}")
+            try:
+                with open(config_path_abs, 'r') as f:
+                    fluxvit_config_dict = json.load(f)
+                
+                self.encoder_impl = FluxViTEncoder(config_dict=fluxvit_config_dict)
+                self.embedding_dim = self.encoder_impl.embedding_dim
+            except Exception as e:
+                logger.error(f"Failed to initialize FluxViTEncoder with config {config_path_abs}: {e}", exc_info=True)
+                raise
 
         elif self.encoder_type == 'internvideo':
             # Similar logic for InternVideo

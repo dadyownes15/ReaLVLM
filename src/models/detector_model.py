@@ -12,3 +12,8 @@ class Detector:
     
     def train(self, embeddings):
         pass
+
+    def calculate_scores(self, embeddings_dir):
+        pass
+
+    

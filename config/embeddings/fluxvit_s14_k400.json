@@ -1,0 +1,24 @@
+{
+    "encoder_type": "fluxvit",
+    "parameters": {
+        "model_name": "fluxvit_small_patch14",
+        "checkpoint_path": "weights/fluxvit/fluxvit_s14/fluxvit_s14_k400_ft_upload.pt",
+        "checkpoint_key": "model", 
+        "patch_size": 14,
+        "img_size": 224,
+        "model_frames_per_clip": 8,
+        "tubelet_size": 1,
+        "model_kwargs": {
+            "clip_embed_dim": 768
+        }
+    },
+    "preprocessing": {
+        "resolution": 224,
+        "clip_duration_frames": 8,
+        "clip_stride": 12,
+        "sampling_method": "stride",
+        "resize_method": "shortest_edge_then_crop",
+        "norm_mean": [0.485, 0.456, 0.406],
+        "norm_std": [0.229, 0.224, 0.225]
+    }
+}

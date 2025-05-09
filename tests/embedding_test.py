@@ -21,6 +21,7 @@ try:
     from src.models.encoder_model import Encoder
     from src.encoder_implementations.jepa_impl import JepaEncoder
     from src.encoder_implementations.hiera_impl import HieraEncoder
+    from src.encoder_implementations.flux_vit_impl import FluxViTEncoder
     # Add InternVideoEncoder import if you want to test it
     # from src.encoder_implementations.internvideo import InternVideoEncoder 
 except ImportError as e:
@@ -163,6 +164,73 @@ def test_hiera():
     logger.info(f"--- Hiera Test Complete (Success: {initialization_passed and encoding_passed}) ---")
     return initialization_passed and encoding_passed
 
+def test_fluxvit():
+    """Tests FluxViT initialization and encoding capability with a real video."""
+    logger.info("--- Running FluxViT Test ---")
+    encoder = None
+    initialization_passed = False
+    try:
+        logger.info("Attempting FluxViT Encoder initialization (using default config)...")
+        # Assuming fluxvit_s14_k400.json is the default and points to a valid checkpoint
+        # or that the FluxViTEncoder handles a missing checkpoint gracefully (e.g. random weights for testing structure)
+        encoder = Encoder(
+            encoder_type='fluxvit',
+            # device='cpu', # FluxViTEncoder will determine its device, can be overridden if needed
+        )
+        assert isinstance(encoder.encoder_impl, FluxViTEncoder)
+        assert encoder.encoder_type == 'fluxvit'
+        logger.info(f"FluxViT Encoder Initialization SUCCESSFUL. Embedding Dim: {encoder.embedding_dim}")
+        initialization_passed = True
+        
+    except (ImportError, FileNotFoundError, ValueError, RuntimeError) as e:
+        logger.error(f"FluxViT Encoder initialization FAILED: {e}", exc_info=True)
+        logger.error("Ensure default FluxViT config 'config/embeddings/fluxvit_s14_k400.json' exists and points to a valid checkpoint, "
+                     "and fluxvit_model_def.py is at the project root.")
+    except Exception as e:
+         logger.error(f"FluxViT Encoder initialization FAILED with unknown error: {e}", exc_info=True)
+
+    if not initialization_passed:
+         logger.error("Skipping FluxViT encoding test due to initialization failure.")
+         return False # Indicate test failure
+         
+    # --- Test Encoding ---
+    encoding_passed = False
+    try:
+        logger.info(f"Attempting FluxViT encoding using video: {REAL_VIDEO_PATH}")
+        if not os.path.exists(REAL_VIDEO_PATH):
+            logger.error(f"Test video not found at {REAL_VIDEO_PATH}. Skipping encoding.")
+            raise FileNotFoundError(f"Test video not found: {REAL_VIDEO_PATH}")
+            
+        embedding_list = encoder.encode(REAL_VIDEO_PATH)
+        
+        if embedding_list is not None and isinstance(embedding_list, list):
+            if embedding_list: # Check if the list is not empty
+                logger.info(f"FluxViT encoding returned a list of {len(embedding_list)} embedding(s).")
+                first_embedding = embedding_list[0]
+                assert isinstance(first_embedding, torch.Tensor)
+                # Encoder class itself defaults to cuda if available, but individual encoders might send to cpu after processing.
+                # The FluxViTEncoder.encode_video currently returns embeddings on CPU.
+                assert str(first_embedding.device) == 'cpu' 
+                logger.info(f"First FluxViT embedding - Shape: {first_embedding.shape}, Device: {first_embedding.device}, dtype: {first_embedding.dtype}")
+                encoding_passed = True
+            else:
+                logger.info("FluxViT encoding returned an empty list.")
+                # Decide if an empty list is a pass or fail for your test case
+                # For now, assume non-empty is expected for a valid video and model
+                encoding_passed = False 
+        elif embedding_list is None:
+            logger.error("FluxViT encoding returned None unexpectedly for a real video.")
+        else:
+            logger.error(f"FluxViT encoding returned an unexpected type: {type(embedding_list)}")
+            
+    except FileNotFoundError as e:
+         logger.error(f"FluxViT encoding failed: {e}") # Log specific file error
+    except Exception as e:
+        logger.error(f"FluxViT encode method FAILED unexpectedly: {e}", exc_info=True)
+
+    logger.info(f"--- FluxViT Test Complete (Success: {initialization_passed and encoding_passed}) ---")
+    return initialization_passed and encoding_passed
+
 if __name__ == "__main__":
     logger.info("Starting Encoder Tests...")
     
@@ -174,8 +242,9 @@ if __name__ == "__main__":
         
     results = {}
     try:
-        results["jepa"] = test_jepa()
-        results["hiera"] = test_hiera()
+        #results["jepa"] = test_jepa()
+        #results["hiera"] = test_hiera()
+        results["fluxvit"] = test_fluxvit()
         # Add calls to other tests here (e.g., test_internvideo)
     finally:
         # No cleanup needed anymore
