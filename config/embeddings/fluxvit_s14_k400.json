@@ -1,7 +1,7 @@
 {
     "encoder_type": "fluxvit",
+    "model_name": "fluxvit_s14_k400",
     "parameters": {
-        "model_name": "fluxvit_small_patch14",
         "checkpoint_path": "weights/fluxvit/fluxvit_s14/fluxvit_s14_k400_ft_upload.pt",
         "checkpoint_key": "model", 
         "patch_size": 14,
