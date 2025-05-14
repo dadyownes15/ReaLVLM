@@ -1,0 +1,17 @@
+{
+    "encoder_type": "hiera",
+    "description": "Config for Hiera large 16x224 (k400 finetune). Uses non-overlapping 16-frame clips.",
+    "parameters": {
+        "model_name": "hiera_large_16x224",
+        "pretrained_checkpoint": "mae_k400_ft_k400",
+        "preprocessing": { 
+            "resolution": 224,
+            "clip_duration_frames": 16,
+            "clip_stride": 16, 
+            "sampling_method": "stride",
+            "resize_method": "hiera_larger_crop", 
+            "norm_mean": [0.485, 0.456, 0.406],
+            "norm_std": [0.229, 0.224, 0.225]
+        }
+    }
+} 

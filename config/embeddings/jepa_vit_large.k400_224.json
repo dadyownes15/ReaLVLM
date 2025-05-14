@@ -1,0 +1,30 @@
+{
+    "encoder_type": "jepa",
+    "description": "Config for V-JEPA ViT-Large (224px, k400 probe). Expects clip-based processing.",
+    "parameters": {
+        "encoder_checkpoint_path": "weights/jepa/vitl16-244/vitl16-224.pth.tar",
+        "probe_checkpoint_path": "weights/jepa/vitl16-244/k400-probe.pth.tar",
+        "model_name": "vit_huge",
+        "patch_size": 16,
+        "model_frames_per_clip": 16,
+        "tubelet_size": 2,
+        "checkpoint_key_encoder": "target_encoder",
+        "checkpoint_key_probe": "classifier",
+        "probe_num_classes": 400,
+        "model_kwargs": {
+            "use_sdpa": true,
+            "uniform_power": false,
+            "use_SiLU": false,
+            "tight_SiLU": true
+        },
+        "preprocessing": {
+            "resolution": 384,
+            "clip_duration_frames": 16,
+            "clip_stride": 16,
+            "sampling_method": "stride",
+            "resize_method": "jepa_short_side",
+            "norm_mean": [0.485, 0.456, 0.406],
+            "norm_std": [0.229, 0.224, 0.225]
+        }
+    }
+}

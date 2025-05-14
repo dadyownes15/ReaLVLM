@@ -2,7 +2,7 @@
 torch>=2.0.0
 torchvision>=0.15.0
 numpy>=1.20
-
+flash-attn
 # Video processing
 # decord>=0.6.0 # Replaced by eva-decord
 eva-decord # Or specify version, e.g., eva-decord>=0.6.0
