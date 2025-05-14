@@ -1,8 +1,8 @@
 {
     "encoder_type": "hiera",
     "description": "Config for Hiera Base 16x224 (k400 finetune). Uses non-overlapping 16-frame clips.",
+    "model_name": "hiera_base_16x224",
     "parameters": {
-        "model_name": "hiera_base_16x224",
         "pretrained_checkpoint": "mae_k400_ft_k400",
         "preprocessing": { 
             "resolution": 224,

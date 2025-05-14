@@ -1,10 +1,10 @@
 {
     "encoder_type": "jepa",
     "description": "Config for V-JEPA ViT-Large (224px, k400 probe). Expects clip-based processing.",
+    "model_name": "vit_large_224_k400",
     "parameters": {
         "encoder_checkpoint_path": "weights/jepa/vitl16-244/vitl16-224.pth.tar",
         "probe_checkpoint_path": "weights/jepa/vitl16-244/k400-probe.pth.tar",
-        "model_name": "vit_huge",
         "patch_size": 16,
         "model_frames_per_clip": 16,
         "tubelet_size": 2,
