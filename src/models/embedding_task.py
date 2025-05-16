@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import torch
 
-from src.models.encoder_model import Encoder
+from models.encoder import Encoder
 
 
 class EmbeddingTask:

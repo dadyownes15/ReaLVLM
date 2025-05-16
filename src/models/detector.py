@@ -1,3 +1,8 @@
+from typing import List
+
+import torch
+
+
 class Detector:
     def __init__(self):
         # The detector is the function that takes a clip (TxHxWxC)and returns a score
@@ -10,7 +15,7 @@ class Detector:
     def detect(self, embeddings):
         pass
     
-    def train(self, embeddings):
+    def train(self, embeddings : List[torch.Tensor]):
         pass
 
     def calculate_scores(self, embeddings_dir):

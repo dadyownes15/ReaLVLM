@@ -13,7 +13,7 @@ sys.path.insert(0, str(project_root))
 # Adjust the import path based on your project structure
 # If tests directory is at the same level as src:
 from src.models.detector_task import DetectorTask
-from src.models.detector_model import Detector
+from models.detector import Detector
 
 class DummyDetector(Detector):
     def __init__(self, name="DummyDetector"):

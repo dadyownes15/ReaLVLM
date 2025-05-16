@@ -26,6 +26,7 @@ def main():
         test_data_path="D:/ReaLVLM/data/shanghai_campus/testing/videos",
     )
 
+    kiera_base_embedding_Task.run()
     
 
 if __name__ == "__main__":

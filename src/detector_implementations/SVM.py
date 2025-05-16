@@ -1,9 +1,13 @@
 import numpy as np
+from sklearn.metrics import make_scorer
+from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.svm import OneClassSVM
 import os
+import torch
+from typing import List, Union
 
 # Assuming the Detector base class is in src.models.detector_model
-from src.models.detector_model import Detector 
+from models.detector import Detector 
 # Assuming a utility function to load embeddings from a directory
 # This path might need adjustment based on your project structure.
 from src.util import load_embeddings_from_dir as _original_load_embeddings_from_dir
@@ -55,31 +59,115 @@ class OneClassSVMDetector(Detector):
         self.type = "OneClassSVM"
         self._is_fitted = False
 
-    def train(self, embeddings: np.ndarray):
+    def _preprocess_embeddings(self, embeddings: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
         """
-        Trains the OneClassSVM model.
-
-        Args:
-            embeddings (np.ndarray): The training samples. Shape (n_samples, n_features).
+        Converts input embeddings to a 2D NumPy array (n_samples, n_features).
         """
-        if embeddings is None or embeddings.shape[0] == 0:
-            raise ValueError("Embeddings cannot be None or empty for training.")
-        if len(embeddings.shape) != 2:
-            raise ValueError(f"Embeddings must be 2D (n_samples, n_features), but got shape {embeddings.shape}")
+        if isinstance(embeddings, np.ndarray):
+            processed_embeddings = embeddings
+        elif isinstance(embeddings, torch.Tensor):
+            processed_embeddings = embeddings.cpu().detach().numpy() # Ensure CPU and NumPy, detach from graph
+        elif isinstance(embeddings, list):
+            if not embeddings:
+                raise ValueError("Input list of embeddings cannot be empty.")
+            if not all(isinstance(e, torch.Tensor) for e in embeddings):
+                raise ValueError("All elements in the list must be PyTorch Tensors.")
+            
+            numpy_arrays = []
+            for t in embeddings:
+                arr = t.cpu().detach().numpy()
+                if arr.ndim == 1: # (D,) -> (1, D)
+                    arr = arr.reshape(1, -1)
+                elif arr.ndim == 0:
+                    raise ValueError(f"0-dimensional tensor found in list: {t}")
+                # If arr.ndim > 2 or arr.ndim == 2 and arr.shape[0] > 1 for list elements,
+                # np.concatenate will handle it, assuming features match.
+                numpy_arrays.append(arr)
+            
+            try:
+                processed_embeddings = np.concatenate(numpy_arrays, axis=0)
+            except ValueError as e:
+                raise ValueError(f"Error concatenating tensors: {e}. Ensure all embeddings have consistent feature dimensions.")
+        else:
+            raise TypeError(f"Unsupported embeddings type: {type(embeddings)}. Expected np.ndarray, torch.Tensor, or List[torch.Tensor].")
 
-        self.detector.fit(embeddings)
+        # Final validation for 2D shape and non-empty
+        if processed_embeddings.ndim == 1:
+            processed_embeddings = processed_embeddings.reshape(1, -1) # Single sample, 1D to 2D
+        elif processed_embeddings.ndim != 2:
+            raise ValueError(f"Processed embeddings must be 2D (n_samples, n_features), but got shape {processed_embeddings.shape}")
+        
+        if processed_embeddings.shape[0] == 0:
+            raise ValueError("Processed embeddings resulted in an empty array (0 samples).")
+        if processed_embeddings.shape[1] == 0:
+            raise ValueError("Processed embeddings resulted in 0 features.")
+            
+        return processed_embeddings
+
+    def train(self, embeddings: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]):
+        """
+        Fits the entire pipeline (reducer → scaler → OneClassSVM) **and** runs a
+        cross-validated random grid-search so that the best-performing hyper-
+        parameter set is selected automatically.
+
+        The search is *unsupervised*: we maximise the **mean decision-function
+        margin** on the validation fold (larger ⇒ samples lie farther inside
+        the learned frontier).
+        """
+        # 1. ---------- prepare data -------------------------------------------------
+        X = self._preprocess_embeddings(embeddings)
+        n_samples = X.shape[0]
+        if n_samples == 0:
+            raise ValueError("Embeddings cannot be empty after processing.")
+
+        # 2. ---------- build CV splitter -------------------------------------------
+        n_splits = min(5, max(2, n_samples))        # handle tiny datasets gracefully
+        cv = KFold(n_splits=n_splits, shuffle=True, random_state=0)
+
+        # 3. ---------- define a surrogate scoring function --------------------------
+        #    (mean signed distance to boundary; higher is better)
+        def _avg_margin(estimator, X_val, _y=None):
+            return np.mean(estimator.decision_function(X_val))
+
+       
+
+        # 4. ---------- search space -------------------------------------------------
+        param_dist = {
+            "nu":     np.linspace(0.01, 0.25, 25),                # 0.01 … 0.25
+            "gamma":  np.logspace(-6, 0, 40),                     # 1e-6 … 1
+            "kernel": ["rbf", "sigmoid"],                         # both use γ
+        }
+        # Feel free to extend this dict (e.g. reducer__n_components) when needed.
+
+        # 5. ---------- run the search ----------------------------------------------
+        search = RandomizedSearchCV(
+            estimator           = self.detector,   # the full Pipeline
+            param_distributions = param_dist,
+            n_iter              = 100,              # ← tweak to taste
+            scoring             = _avg_margin,
+            cv                  = cv,
+            n_jobs              = -1,
+            verbose             = 1,
+            random_state        = 0,
+        )
+        search.fit(X)                              # unsupervised → no y
+        self.detector  = search.best_estimator_    # keep the winner
         self._is_fitted = True
-        # Store some information from the fitted model if needed
-        # For example, number of support vectors:
-        # self.n_support_ = self.detector.n_support_ 
 
-    def calculate_score(self, embeddings: np.ndarray) -> np.ndarray:
+        # (Optional) expose metadata for later inspection
+        self.best_params_ = search.best_params_
+        self.cv_results_  = search.cv_results_
+
+        print(self.best_params_)
+        print(self.detector)
+    def calculate_score(self, embeddings: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
         """
         Calculates the anomaly score for the given embeddings.
         For OneClassSVM, this is the signed distance to the separating hyperplane.
 
         Args:
-            embeddings (np.ndarray): The input samples. Shape (n_samples, n_features).
+            embeddings (Union[np.ndarray, torch.Tensor, List[torch.Tensor]]): 
+                The input samples. Can be a 2D NumPy array, a 2D PyTorch Tensor, or a list of PyTorch Tensors.
 
         Returns:
             np.ndarray: The decision function scores. Higher scores typically mean more normal.
@@ -91,26 +179,20 @@ class OneClassSVMDetector(Detector):
         """
         if not self._is_fitted:
             raise RuntimeError("The detector has not been fitted yet. Call train() first.")
-        if embeddings is None or embeddings.shape[0] == 0:
-            raise ValueError("Embeddings cannot be None or empty for scoring.")
-        if len(embeddings.shape) != 2:
-            raise ValueError(f"Embeddings must be 2D (n_samples, n_features), but got shape {embeddings.shape}")
+        
+        processed_embeddings = self._preprocess_embeddings(embeddings)
+        if processed_embeddings.shape[0] == 0:
+            raise ValueError("Embeddings cannot be empty for scoring after processing.")
             
-        # decision_function returns the signed distance to the separating hyperplane.
-        # The sign might depend on the convention (e.g. positive for inliers, negative for outliers)
-        # OneClassSVM returns positive for "inliers" and negative for "outliers"
-        # To make it an "anomaly score" where higher means more anomalous, we can negate it.
-        # However, the base class `Detector` doesn't strictly define the score's direction.
-        # Let's stick to raw decision_function output first.
-        # Users can interpret scores where more negative = more anomalous.
-        return self.detector.decision_function(embeddings)
+        return self.detector.decision_function(processed_embeddings)
 
-    def detect(self, embeddings: np.ndarray) -> np.ndarray:
+    def detect(self, embeddings: Union[np.ndarray, torch.Tensor, List[torch.Tensor]]) -> np.ndarray:
         """
         Predicts whether each sample is an inlier (1) or an outlier (-1).
 
         Args:
-            embeddings (np.ndarray): The input samples. Shape (n_samples, n_features).
+            embeddings (Union[np.ndarray, torch.Tensor, List[torch.Tensor]]): 
+                The input samples. Can be a 2D NumPy array, a 2D PyTorch Tensor, or a list of PyTorch Tensors.
 
         Returns:
             np.ndarray: Prediction labels (1 for inlier, -1 for outlier).
@@ -120,12 +202,12 @@ class OneClassSVMDetector(Detector):
         """
         if not self._is_fitted:
             raise RuntimeError("The detector has not been fitted yet. Call train() first.")
-        if embeddings is None or embeddings.shape[0] == 0:
-            raise ValueError("Embeddings cannot be None or empty for detection.")
-        if len(embeddings.shape) != 2:
-            raise ValueError(f"Embeddings must be 2D (n_samples, n_features), but got shape {embeddings.shape}")
 
-        return self.detector.predict(embeddings)
+        processed_embeddings = self._preprocess_embeddings(embeddings)
+        if processed_embeddings.shape[0] == 0:
+            raise ValueError("Embeddings cannot be empty for detection after processing.")
+
+        return self.detector.predict(processed_embeddings)
 
     def calculate_scores(self, embeddings_dir: str) -> np.ndarray:
         """

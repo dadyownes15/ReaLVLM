@@ -129,7 +129,7 @@ class JepaEncoder:
         self.embedding_dim = self.encoder.embed_dim
         logger.info(f"Initialized JepaEncoder. Output embedding dimension: {self.embedding_dim}")
 
-    # --- Preprocessing (Example - Needs Implementation) ---
+    
     def _preprocess_clip(self, clip_frames):
         """(Private) Preprocesses a batch/list of frames for a single clip."""
         # Extract relevant params from self.preproc_params

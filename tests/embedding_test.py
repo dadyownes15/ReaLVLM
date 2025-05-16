@@ -18,7 +18,7 @@ if project_root not in sys.path:
 
 # --- Try importing necessary classes ---
 try:
-    from src.models.encoder_model import Encoder
+    from models.encoder import Encoder
     from src.encoder_implementations.jepa_impl import JepaEncoder
     from src.encoder_implementations.hiera_impl import HieraEncoder
     from src.encoder_implementations.flux_vit_impl import FluxViTEncoder

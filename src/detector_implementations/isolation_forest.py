@@ -4,7 +4,7 @@ import joblib
 import os
 
 # Assuming the Detector base class is in src.models.detector_model
-from src.models.detector_model import Detector
+from models.detector import Detector
 
 class IsolationForestDetector(Detector):
     """
